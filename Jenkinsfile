@@ -31,14 +31,24 @@ pipeline {
                     if (isUnix()) {
                         error('Este pipeline foi configurado para rodar em agente Windows.')
                     }
+
+                    def compiler = env.INNO_COMPILER
+                    def compilerExists = bat(returnStatus: true, script: "@echo off\r\nif exist \"${compiler}\" (exit /b 0) else (exit /b 1)")
+                    if (compilerExists != 0) {
+                        def whereIscc = bat(returnStdout: true, script: '@echo off\r\nwhere ISCC 2>nul').trim()
+                        if (whereIscc) {
+                            env.INNO_COMPILER = whereIscc.readLines()[0].trim()
+                        }
+                    }
                 }
                 bat 'where dotnet'
                 bat 'dotnet --info'
                 bat """
                     if not exist "${env.INNO_COMPILER}" (
-                        echo Inno Setup nao encontrado em: ${env.INNO_COMPILER}
+                        echo Inno Setup nao encontrado em: "${env.INNO_COMPILER}"
                         exit /b 1
                     )
+                    "${env.INNO_COMPILER}" /?
                 """
             }
         }
