@@ -48,7 +48,7 @@ pipeline {
                         echo Inno Setup nao encontrado em: "${env.INNO_COMPILER}"
                         exit /b 1
                     )
-                    "${env.INNO_COMPILER}" /?
+                    "${env.INNO_COMPILER}" /? >nul 2>&1 || exit /b 0
                 """
             }
         }
