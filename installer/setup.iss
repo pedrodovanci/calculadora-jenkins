@@ -2,7 +2,7 @@
 ; Gera um instalador Windows (.exe) a partir do build publicado pelo .NET
 
 #define MyAppName "Calculadora Console"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "UNILAGO"
 #define MyAppExeName "Calculadora.exe"
 
