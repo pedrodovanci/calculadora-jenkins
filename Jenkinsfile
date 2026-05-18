@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         APP_NAME       = 'Calculadora'
-        APP_VERSION    = '1.0.0'
+        APP_VERSION    = '1.1.0'
         PROJECT_PATH   = 'Calculadora\\Calculadora.csproj'
         PUBLISH_DIR    = 'publish'
         DIST_DIR       = 'dist'
