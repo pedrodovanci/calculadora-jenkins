@@ -149,39 +149,210 @@
     <main class="app" aria-label="Calculadora">
       <div class="top">
         <div class="title">Calculadora</div>
-        <div class="badge">layout HTML + CSS</div>
+        <div class="badge">HTML + CSS + JS</div>
       </div>
 
       <section class="display" aria-label="Display">
-        <div class="expr" aria-label="Expressão">12 × 3</div>
-        <div class="value" aria-label="Valor">36</div>
+        <div class="expr" aria-label="Expressão" id="expr"></div>
+        <div class="value" aria-label="Valor" id="value">0</div>
       </section>
 
       <section class="keys" aria-label="Teclado">
-        <button class="btn btn--danger" type="button">AC</button>
-        <button class="btn" type="button">±</button>
-        <button class="btn" type="button">%</button>
-        <button class="btn btn--op" type="button">÷</button>
+        <button class="btn btn--danger" type="button" data-action="clear">AC</button>
+        <button class="btn btn--op" type="button" data-op="^">^</button>
+        <button class="btn btn--op" type="button" data-op="%">%</button>
+        <button class="btn btn--op" type="button" data-op="/">÷</button>
 
-        <button class="btn" type="button">7</button>
-        <button class="btn" type="button">8</button>
-        <button class="btn" type="button">9</button>
-        <button class="btn btn--op" type="button">×</button>
+        <button class="btn" type="button" data-digit="7">7</button>
+        <button class="btn" type="button" data-digit="8">8</button>
+        <button class="btn" type="button" data-digit="9">9</button>
+        <button class="btn btn--op" type="button" data-op="*">×</button>
 
-        <button class="btn" type="button">4</button>
-        <button class="btn" type="button">5</button>
-        <button class="btn" type="button">6</button>
-        <button class="btn btn--op" type="button">−</button>
+        <button class="btn" type="button" data-digit="4">4</button>
+        <button class="btn" type="button" data-digit="5">5</button>
+        <button class="btn" type="button" data-digit="6">6</button>
+        <button class="btn btn--op" type="button" data-op="-">−</button>
 
-        <button class="btn" type="button">1</button>
-        <button class="btn" type="button">2</button>
-        <button class="btn" type="button">3</button>
-        <button class="btn btn--op" type="button">+</button>
+        <button class="btn" type="button" data-digit="1">1</button>
+        <button class="btn" type="button" data-digit="2">2</button>
+        <button class="btn" type="button" data-digit="3">3</button>
+        <button class="btn btn--op" type="button" data-op="+">+</button>
 
-        <button class="btn span-2" type="button">0</button>
-        <button class="btn" type="button">,</button>
-        <button class="btn btn--eq" type="button">=</button>
+        <button class="btn span-2" type="button" data-digit="0">0</button>
+        <button class="btn" type="button" data-action="decimal">,</button>
+        <button class="btn btn--eq" type="button" data-action="equals">=</button>
       </section>
     </main>
+    <script>
+      const exprEl = document.getElementById('expr');
+      const valueEl = document.getElementById('value');
+
+      const state = {
+        current: '0',
+        previous: null,
+        op: null,
+        justEvaluated: false,
+      };
+
+      function opSymbol(op) {
+        if (op === '*') return '×';
+        if (op === '/') return '÷';
+        return op ?? '';
+      }
+
+      function formatNumberDisplay(raw) {
+        if (raw === '' || raw === '-') return raw;
+        const normalized = raw.replace(',', '.');
+        const n = Number(normalized);
+        if (!Number.isFinite(n)) return 'Erro';
+        const isDecimal = normalized.includes('.');
+        const [intPart, decPart] = normalized.split('.');
+        const intFormatted = Number(intPart).toLocaleString('pt-BR');
+        if (!isDecimal) return intFormatted;
+        const safeDec = (decPart ?? '').slice(0, 10);
+        return safeDec.length ? `${intFormatted},${safeDec}` : `${intFormatted},`;
+      }
+
+      function getCurrentNumber() {
+        if (state.current === '' || state.current === '-' || state.current === ',') return 0;
+        return Number(state.current.replace(',', '.'));
+      }
+
+      function setCurrentFromNumber(n) {
+        if (!Number.isFinite(n)) {
+          state.current = 'Erro';
+          return;
+        }
+        const s = String(n);
+        if (s.includes('e') || s.includes('E')) {
+          state.current = n.toFixed(10).replace(/\.?0+$/, '').replace('.', ',');
+          return;
+        }
+        state.current = s.replace('.', ',');
+      }
+
+      function updateUI() {
+        const prevText = state.previous === null ? '' : String(state.previous).replace('.', ',');
+        const opText = opSymbol(state.op);
+        exprEl.textContent = prevText && opText ? `${formatNumberDisplay(prevText)} ${opText}` : '';
+
+        valueEl.textContent = state.current === 'Erro' ? 'Erro' : formatNumberDisplay(state.current);
+      }
+
+      function clearAll() {
+        state.current = '0';
+        state.previous = null;
+        state.op = null;
+        state.justEvaluated = false;
+        updateUI();
+      }
+
+      function inputDigit(d) {
+        if (state.current === 'Erro') return;
+        if (state.justEvaluated) {
+          state.current = '0';
+          state.justEvaluated = false;
+        }
+        if (state.current === '0') {
+          state.current = d;
+        } else {
+          state.current += d;
+        }
+        updateUI();
+      }
+
+      function inputDecimal() {
+        if (state.current === 'Erro') return;
+        if (state.justEvaluated) {
+          state.current = '0';
+          state.justEvaluated = false;
+        }
+        if (!state.current.includes(',')) state.current += ',';
+        updateUI();
+      }
+
+      async function computeViaApi(a, op, b) {
+        try {
+          const res = await fetch('/api/calc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ n1: a, n2: b, op }),
+          });
+          const data = await res.json();
+          if (!data?.ok) return { ok: false, error: data?.error || 'Erro' };
+          return { ok: true, result: data.result };
+        } catch {
+          return { ok: false, error: 'Inicie o servidor: dotnet run --project .\\Calculadora\\Calculadora.csproj -- --server' };
+        }
+      }
+
+      async function setOperation(op) {
+        if (state.current === 'Erro') return;
+
+        const currentValue = getCurrentNumber();
+
+        if (state.op && state.previous !== null && !state.justEvaluated) {
+          const out = await computeViaApi(state.previous, state.op, currentValue);
+          if (!out.ok) {
+            state.current = 'Erro';
+            state.previous = null;
+            state.op = null;
+            exprEl.textContent = out.error;
+            updateUI();
+            return;
+          }
+          state.previous = out.result;
+          state.current = String(out.result).replace('.', ',');
+        } else {
+          state.previous = currentValue;
+        }
+
+        state.op = op;
+        state.current = '0';
+        state.justEvaluated = false;
+        updateUI();
+      }
+
+      async function equals() {
+        if (state.current === 'Erro') return;
+        if (!state.op || state.previous === null) return;
+
+        const a = state.previous;
+        const b = getCurrentNumber();
+        const out = await computeViaApi(a, state.op, b);
+        if (!out.ok) {
+          state.current = 'Erro';
+          state.previous = null;
+          state.op = null;
+          state.justEvaluated = true;
+          exprEl.textContent = out.error;
+          updateUI();
+          return;
+        }
+
+        state.previous = out.result;
+        state.current = String(out.result).replace('.', ',');
+        state.justEvaluated = true;
+        updateUI();
+      }
+
+      document.querySelector('.keys').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+
+        const digit = btn.getAttribute('data-digit');
+        const op = btn.getAttribute('data-op');
+        const action = btn.getAttribute('data-action');
+
+        if (digit !== null) return inputDigit(digit);
+        if (op !== null) return await setOperation(op);
+
+        if (action === 'clear') return clearAll();
+        if (action === 'decimal') return inputDecimal();
+        if (action === 'equals') return await equals();
+      });
+
+      clearAll();
+    </script>
   </body>
 </html>
