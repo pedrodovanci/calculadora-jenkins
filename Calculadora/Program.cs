@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -13,6 +16,7 @@ CultureInfo.CurrentCulture = new CultureInfo("pt-BR");
 
 if (args.Any(a => string.Equals(a, "--console", StringComparison.OrdinalIgnoreCase)))
 {
+    ConsoleHost.EnsureConsole();
     RunConsole();
     return;
 }
@@ -95,7 +99,8 @@ static double Calcular(string? opcao, double n1, double n2)
 
 static async Task RunWebAsync(string[] args)
 {
-    const int port = 5005;
+    int desiredPort = ParsePortArg(args) ?? 5005;
+    int port = FindAvailablePort(desiredPort, 20);
     string baseUrl = $"http://localhost:{port}";
 
     var builder = WebApplication.CreateBuilder(args);
@@ -111,13 +116,7 @@ static async Task RunWebAsync(string[] args)
         if (args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase)))
             return;
 
-        try
-        {
-            Process.Start(new ProcessStartInfo($"{baseUrl}/") { UseShellExecute = true });
-        }
-        catch
-        {
-        }
+        TryOpenBrowser($"{baseUrl}/");
     });
 
     app.MapGet("/", () =>
@@ -164,6 +163,62 @@ static async Task RunWebAsync(string[] args)
     });
 
     await app.RunAsync();
+}
+
+static int? ParsePortArg(string[] args)
+{
+    foreach (string a in args)
+    {
+        if (a.StartsWith("--port=", StringComparison.OrdinalIgnoreCase))
+        {
+            string raw = a.Substring("--port=".Length);
+            if (int.TryParse(raw, out int p) && p >= 1024 && p <= 65535)
+                return p;
+        }
+    }
+
+    return null;
+}
+
+static int FindAvailablePort(int startPort, int maxAttempts)
+{
+    int port = startPort;
+    for (int i = 0; i < maxAttempts; i++)
+    {
+        try
+        {
+            var l = new TcpListener(IPAddress.Loopback, port);
+            l.Start();
+            l.Stop();
+            return port;
+        }
+        catch
+        {
+            port++;
+        }
+    }
+
+    return startPort;
+}
+
+static void TryOpenBrowser(string url)
+{
+    try
+    {
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        return;
+    }
+    catch
+    {
+    }
+
+    try
+    {
+        Process.Start(new ProcessStartInfo("cmd", $"/c start {url}") { CreateNoWindow = true });
+    }
+    catch
+    {
+    }
 }
 
 static string GetDbPath()
@@ -320,5 +375,21 @@ sealed class CalcDb
         }
 
         return items;
+    }
+}
+
+static class ConsoleHost
+{
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AllocConsole();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    public static void EnsureConsole()
+    {
+        if (GetConsoleWindow() != IntPtr.Zero)
+            return;
+        AllocConsole();
     }
 }
