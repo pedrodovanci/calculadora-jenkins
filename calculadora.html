@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Calculadora</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel-2: rgba(255, 255, 255, 0.08);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.55);
+        --accent: #7c3aed;
+        --accent-2: #22c55e;
+        --danger: #ef4444;
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        --radius: 20px;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(900px 500px at 10% 10%, rgba(124, 58, 237, 0.28), transparent 60%),
+          radial-gradient(800px 500px at 90% 20%, rgba(34, 197, 94, 0.18), transparent 55%),
+          radial-gradient(700px 600px at 40% 100%, rgba(59, 130, 246, 0.18), transparent 60%),
+          var(--bg);
+      }
+
+      .app {
+        width: min(420px, 100%);
+        border-radius: calc(var(--radius) + 8px);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        padding: 18px;
+        backdrop-filter: blur(10px);
+      }
+
+      .top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        padding: 4px 4px 8px;
+      }
+
+      .title {
+        font-size: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .badge {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+
+      .display {
+        border-radius: var(--radius);
+        padding: 16px 16px 14px;
+        background: rgba(10, 14, 28, 0.65);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        margin-bottom: 14px;
+      }
+
+      .display .expr {
+        min-height: 18px;
+        font-size: 13px;
+        color: var(--muted);
+        text-align: right;
+        letter-spacing: 0.02em;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      .display .value {
+        margin-top: 6px;
+        font-size: 44px;
+        font-weight: 650;
+        line-height: 1.1;
+        text-align: right;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      .keys {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }
+
+      .btn {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        border-radius: 16px;
+        padding: 16px 12px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow:
+          0 8px 20px rgba(0, 0, 0, 0.25),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
+        user-select: none;
+      }
+
+      .btn:active { transform: translateY(1px); }
+      .btn:hover { background: rgba(255, 255, 255, 0.085); border-color: rgba(255, 255, 255, 0.16); }
+      .btn:focus-visible { outline: 2px solid rgba(124, 58, 237, 0.65); outline-offset: 2px; }
+
+      .btn--op { background: rgba(124, 58, 237, 0.16); border-color: rgba(124, 58, 237, 0.35); }
+      .btn--op:hover { background: rgba(124, 58, 237, 0.22); border-color: rgba(124, 58, 237, 0.45); }
+
+      .btn--eq { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.40); }
+      .btn--eq:hover { background: rgba(34, 197, 94, 0.24); border-color: rgba(34, 197, 94, 0.55); }
+
+      .btn--danger { background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.40); }
+      .btn--danger:hover { background: rgba(239, 68, 68, 0.24); border-color: rgba(239, 68, 68, 0.55); }
+
+      .span-2 { grid-column: span 2; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .btn { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app" aria-label="Calculadora">
+      <div class="top">
+        <div class="title">Calculadora</div>
+        <div class="badge">layout HTML + CSS</div>
+      </div>
+
+      <section class="display" aria-label="Display">
+        <div class="expr" aria-label="Expressão">12 × 3</div>
+        <div class="value" aria-label="Valor">36</div>
+      </section>
+
+      <section class="keys" aria-label="Teclado">
+        <button class="btn btn--danger" type="button">AC</button>
+        <button class="btn" type="button">±</button>
+        <button class="btn" type="button">%</button>
+        <button class="btn btn--op" type="button">÷</button>
+
+        <button class="btn" type="button">7</button>
+        <button class="btn" type="button">8</button>
+        <button class="btn" type="button">9</button>
+        <button class="btn btn--op" type="button">×</button>
+
+        <button class="btn" type="button">4</button>
+        <button class="btn" type="button">5</button>
+        <button class="btn" type="button">6</button>
+        <button class="btn btn--op" type="button">−</button>
+
+        <button class="btn" type="button">1</button>
+        <button class="btn" type="button">2</button>
+        <button class="btn" type="button">3</button>
+        <button class="btn btn--op" type="button">+</button>
+
+        <button class="btn span-2" type="button">0</button>
+        <button class="btn" type="button">,</button>
+        <button class="btn btn--eq" type="button">=</button>
+      </section>
+    </main>
+  </body>
+</html>
