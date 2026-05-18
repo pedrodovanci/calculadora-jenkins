@@ -102,6 +102,67 @@
         text-overflow: ellipsis;
       }
 
+      .history {
+        border-radius: var(--radius);
+        padding: 12px 14px;
+        background: rgba(10, 14, 28, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        margin-bottom: 14px;
+      }
+
+      .history-title {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
+      .history-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 6px;
+        max-height: 130px;
+        overflow: auto;
+      }
+
+      .history-item {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .history-item .left {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      .history-item .right {
+        color: var(--muted);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 2px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
       .keys {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -157,6 +218,11 @@
         <div class="value" aria-label="Valor" id="value">0</div>
       </section>
 
+      <section class="history" aria-label="Histórico">
+        <div class="history-title">Histórico</div>
+        <ul class="history-list" id="historyList"></ul>
+      </section>
+
       <section class="keys" aria-label="Teclado">
         <button class="btn btn--danger" type="button" data-action="clear">AC</button>
         <button class="btn btn--op" type="button" data-op="^">^</button>
@@ -186,6 +252,7 @@
     <script>
       const exprEl = document.getElementById('expr');
       const valueEl = document.getElementById('value');
+      const historyListEl = document.getElementById('historyList');
 
       const state = {
         current: '0',
@@ -282,7 +349,46 @@
           if (!data?.ok) return { ok: false, error: data?.error || 'Erro' };
           return { ok: true, result: data.result };
         } catch {
-          return { ok: false, error: 'Inicie o servidor: dotnet run --project .\\Calculadora\\Calculadora.csproj -- --server' };
+          return { ok: false, error: 'Inicie o aplicativo e abra http://localhost:5005/' };
+        }
+      }
+
+      function formatDateIso(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      }
+
+      function formatHistoryNumber(n) {
+        const v = Number(n);
+        if (!Number.isFinite(v)) return 'Erro';
+        return v.toLocaleString('pt-BR', { maximumFractionDigits: 10 });
+      }
+
+      async function loadHistory() {
+        try {
+          const res = await fetch('/api/history?limit=12');
+          const data = await res.json();
+          if (!data?.ok || !Array.isArray(data.items)) return;
+
+          historyListEl.innerHTML = data.items
+            .map((it) => {
+              const left = `${formatHistoryNumber(it.n1)} ${opSymbol(it.op)} ${formatHistoryNumber(it.n2)}`;
+              const right = it.ok ? `= ${formatHistoryNumber(it.result)}` : 'Erro';
+              const time = formatDateIso(it.createdUtc);
+              return `
+                <li class="history-item">
+                  <div class="left">
+                    <span class="chip">${left}</span>
+                    ${time ? `<span class="chip">${time}</span>` : ''}
+                  </div>
+                  <div class="right">${right}</div>
+                </li>
+              `;
+            })
+            .join('');
+        } catch {
         }
       }
 
@@ -303,6 +409,7 @@
           }
           state.previous = out.result;
           state.current = String(out.result).replace('.', ',');
+          loadHistory();
         } else {
           state.previous = currentValue;
         }
@@ -334,6 +441,7 @@
         state.current = String(out.result).replace('.', ',');
         state.justEvaluated = true;
         updateUI();
+        loadHistory();
       }
 
       document.querySelector('.keys').addEventListener('click', async (e) => {
@@ -353,6 +461,7 @@
       });
 
       clearAll();
+      loadHistory();
     </script>
   </body>
 </html>

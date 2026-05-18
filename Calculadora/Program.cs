@@ -1,61 +1,70 @@
+using System.Diagnostics;
 using System.Globalization;
-using System.Net;
+using System.Reflection;
 using System.Text;
-using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Hosting;
 
-Console.OutputEncoding = System.Text.Encoding.UTF8;
+Console.OutputEncoding = Encoding.UTF8;
 CultureInfo.CurrentCulture = new CultureInfo("pt-BR");
 
-if (args.Any(a => string.Equals(a, "--server", StringComparison.OrdinalIgnoreCase)))
+if (args.Any(a => string.Equals(a, "--console", StringComparison.OrdinalIgnoreCase)))
 {
-    await RunServerAsync();
+    RunConsole();
     return;
 }
 
-while (true)
+await RunWebAsync(args);
+
+static void RunConsole()
 {
-    if (!Console.IsOutputRedirected)
-        Console.Clear();
-    Console.WriteLine("=========================================");
-    Console.WriteLine("       CALCULADORA CONSOLE - UNILAGO     ");
-    Console.WriteLine("=========================================");
-    Console.WriteLine();
-
-    double n1 = LerNumero("Digite o primeiro numero: ");
-    double n2 = LerNumero("Digite o segundo numero:  ");
-
-    Console.WriteLine();
-    Console.WriteLine("Escolha a operacao:");
-    Console.WriteLine("  1 - Soma (+)");
-    Console.WriteLine("  2 - Subtracao (-)");
-    Console.WriteLine("  3 - Multiplicacao (*)");
-    Console.WriteLine("  4 - Divisao (/)");
-    Console.WriteLine("  5 - Resto da divisao (%)");
-    Console.WriteLine("  6 - Potencia (^)");
-    Console.Write("Opcao: ");
-
-    string? opcao = Console.ReadLine();
-    Console.WriteLine();
-
-    try
+    while (true)
     {
-        double resultado = Calcular(opcao, n1, n2);
+        if (!Console.IsOutputRedirected)
+            Console.Clear();
+        Console.WriteLine("=========================================");
+        Console.WriteLine("       CALCULADORA CONSOLE - UNILAGO     ");
+        Console.WriteLine("=========================================");
+        Console.WriteLine();
 
-        Console.WriteLine($"Resultado: {resultado:N4}");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Erro: {ex.Message}");
+        double n1 = LerNumero("Digite o primeiro numero: ");
+        double n2 = LerNumero("Digite o segundo numero:  ");
+
+        Console.WriteLine();
+        Console.WriteLine("Escolha a operacao:");
+        Console.WriteLine("  1 - Soma (+)");
+        Console.WriteLine("  2 - Subtracao (-)");
+        Console.WriteLine("  3 - Multiplicacao (*)");
+        Console.WriteLine("  4 - Divisao (/)");
+        Console.WriteLine("  5 - Resto da divisao (%)");
+        Console.WriteLine("  6 - Potencia (^)");
+        Console.Write("Opcao: ");
+
+        string? opcao = Console.ReadLine();
+        Console.WriteLine();
+
+        try
+        {
+            double resultado = Calcular(opcao, n1, n2);
+            Console.WriteLine($"Resultado: {resultado:N4}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro: {ex.Message}");
+        }
+
+        Console.WriteLine();
+        Console.Write("Deseja realizar outra operacao? (S/N): ");
+        string? continuar = Console.ReadLine();
+        if (!string.Equals(continuar?.Trim(), "S", StringComparison.OrdinalIgnoreCase))
+            break;
     }
 
-    Console.WriteLine();
-    Console.Write("Deseja realizar outra operacao? (S/N): ");
-    string? continuar = Console.ReadLine();
-    if (!string.Equals(continuar?.Trim(), "S", StringComparison.OrdinalIgnoreCase))
-        break;
+    Console.WriteLine("Encerrando a calculadora. Ate logo!");
 }
-
-Console.WriteLine("Encerrando a calculadora. Ate logo!");
 
 static double LerNumero(string prompt)
 {
@@ -84,101 +93,101 @@ static double Calcular(string? opcao, double n1, double n2)
     };
 }
 
-static async Task RunServerAsync()
+static async Task RunWebAsync(string[] args)
 {
     const int port = 5005;
-    string prefix = $"http://localhost:{port}/";
+    string baseUrl = $"http://localhost:{port}";
 
-    using var listener = new HttpListener();
-    listener.Prefixes.Add(prefix);
-    listener.Start();
+    var builder = WebApplication.CreateBuilder(args);
+    builder.WebHost.UseUrls(baseUrl);
 
-    Console.WriteLine($"Servidor iniciado em {prefix}");
-    Console.WriteLine("Abra no navegador: http://localhost:5005/");
-    Console.WriteLine("Para parar: Ctrl+C");
+    var app = builder.Build();
 
-    while (listener.IsListening)
+    var db = new CalcDb(GetDbPath());
+    await db.InitAsync();
+
+    app.Lifetime.ApplicationStarted.Register(() =>
     {
-        HttpListenerContext ctx = await listener.GetContextAsync();
-        _ = Task.Run(() => HandleRequestAsync(ctx));
-    }
+        if (args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo($"{baseUrl}/") { UseShellExecute = true });
+        }
+        catch
+        {
+        }
+    });
+
+    app.MapGet("/", () =>
+    {
+        string? html = TryLoadHtml();
+        return html is null
+            ? Results.Text("Arquivo calculadora.html não encontrado.", "text/plain; charset=utf-8")
+            : Results.Text(html, "text/html; charset=utf-8");
+    });
+
+    app.MapPost("/api/calc", async (HttpContext ctx) =>
+    {
+        CalcRequest? req;
+        try
+        {
+            req = await ctx.Request.ReadFromJsonAsync<CalcRequest>();
+        }
+        catch
+        {
+            req = null;
+        }
+
+        if (req is null || string.IsNullOrWhiteSpace(req.Op))
+            return Results.Json(new { ok = false, error = "Requisição inválida." }, statusCode: 400);
+
+        try
+        {
+            double result = Calcular(req.Op, req.N1, req.N2);
+            await db.LogAsync(new CalcLog(DateTime.UtcNow, req.N1, req.N2, req.Op, result, true, null));
+            return Results.Json(new { ok = true, result });
+        }
+        catch (Exception ex)
+        {
+            await db.LogAsync(new CalcLog(DateTime.UtcNow, req.N1, req.N2, req.Op, null, false, ex.Message));
+            return Results.Json(new { ok = false, error = ex.Message }, statusCode: 400);
+        }
+    });
+
+    app.MapGet("/api/history", async (int? limit) =>
+    {
+        int take = limit is > 0 and <= 100 ? limit.Value : 20;
+        List<CalcHistoryItem> items = await db.GetHistoryAsync(take);
+        return Results.Json(new { ok = true, items });
+    });
+
+    await app.RunAsync();
 }
 
-static async Task HandleRequestAsync(HttpListenerContext ctx)
+static string GetDbPath()
 {
     try
     {
-        string path = ctx.Request.Url?.AbsolutePath ?? "/";
-
-        if (string.Equals(path, "/", StringComparison.OrdinalIgnoreCase))
-        {
-            string? html = TryLoadHtml();
-            if (html is null)
-            {
-                await WriteTextAsync(ctx, 200, "text/plain; charset=utf-8", "Arquivo calculadora.html não encontrado.");
-                return;
-            }
-
-            await WriteTextAsync(ctx, 200, "text/html; charset=utf-8", html);
-            return;
-        }
-
-        if (string.Equals(path, "/api/calc", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(ctx.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
-        {
-            using var reader = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding);
-            string body = await reader.ReadToEndAsync();
-
-            CalcRequest? req = JsonSerializer.Deserialize<CalcRequest>(body, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (req is null || string.IsNullOrWhiteSpace(req.Op))
-            {
-                await WriteJsonAsync(ctx, 400, new { ok = false, error = "Requisição inválida." });
-                return;
-            }
-
-            try
-            {
-                double result = Calcular(req.Op, req.N1, req.N2);
-                await WriteJsonAsync(ctx, 200, new { ok = true, result });
-            }
-            catch (Exception ex)
-            {
-                await WriteJsonAsync(ctx, 400, new { ok = false, error = ex.Message });
-            }
-
-            return;
-        }
-
-        await WriteTextAsync(ctx, 404, "text/plain; charset=utf-8", "Não encontrado.");
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Calculadora");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "calculadora.db");
     }
     catch
     {
-        try
-        {
-            await WriteTextAsync(ctx, 500, "text/plain; charset=utf-8", "Erro interno.");
-        }
-        catch
-        {
-        }
-    }
-    finally
-    {
-        try
-        {
-            ctx.Response.OutputStream.Close();
-        }
-        catch
-        {
-        }
+        string dir = Path.Combine(AppContext.BaseDirectory, "data");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "calculadora.db");
     }
 }
 
 static string? TryLoadHtml()
 {
+    string? embedded = TryLoadEmbeddedHtml();
+    if (!string.IsNullOrWhiteSpace(embedded))
+        return embedded;
+
     string baseDir = AppContext.BaseDirectory;
     for (int i = 0; i < 8; i++)
     {
@@ -195,22 +204,121 @@ static string? TryLoadHtml()
     return null;
 }
 
-static async Task WriteTextAsync(HttpListenerContext ctx, int statusCode, string contentType, string text)
+static string? TryLoadEmbeddedHtml()
 {
-    byte[] bytes = Encoding.UTF8.GetBytes(text);
-    ctx.Response.StatusCode = statusCode;
-    ctx.Response.ContentType = contentType;
-    ctx.Response.ContentLength64 = bytes.Length;
-    await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
-}
+    Assembly asm = Assembly.GetExecutingAssembly();
+    string? name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(".calculadora.html", StringComparison.OrdinalIgnoreCase));
+    if (name is null)
+        return null;
 
-static async Task WriteJsonAsync(HttpListenerContext ctx, int statusCode, object payload)
-{
-    byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
-    ctx.Response.StatusCode = statusCode;
-    ctx.Response.ContentType = "application/json; charset=utf-8";
-    ctx.Response.ContentLength64 = bytes.Length;
-    await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+    using Stream? s = asm.GetManifestResourceStream(name);
+    if (s is null)
+        return null;
+
+    using var reader = new StreamReader(s, Encoding.UTF8);
+    return reader.ReadToEnd();
 }
 
 sealed record CalcRequest(double N1, double N2, string Op);
+
+sealed record CalcLog(DateTime CreatedUtc, double N1, double N2, string Op, double? Result, bool Ok, string? Error);
+
+sealed record CalcHistoryItem(long Id, DateTime CreatedUtc, double N1, double N2, string Op, double? Result, bool Ok, string? Error);
+
+sealed class CalcDb
+{
+    private readonly string _connectionString;
+
+    public CalcDb(string dbPath)
+    {
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = dbPath,
+            Cache = SqliteCacheMode.Shared
+        }.ToString();
+    }
+
+    public async Task InitAsync()
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
+                CREATE TABLE IF NOT EXISTS operations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_utc TEXT NOT NULL,
+                    n1 REAL NOT NULL,
+                    n2 REAL NOT NULL,
+                    op TEXT NOT NULL,
+                    result REAL NULL,
+                    ok INTEGER NOT NULL,
+                    error TEXT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_operations_created ON operations(created_utc DESC);
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    public async Task LogAsync(CalcLog log)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO operations (created_utc, n1, n2, op, result, ok, error)
+            VALUES ($createdUtc, $n1, $n2, $op, $result, $ok, $error);
+            """;
+        cmd.Parameters.AddWithValue("$createdUtc", log.CreatedUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$n1", log.N1);
+        cmd.Parameters.AddWithValue("$n2", log.N2);
+        cmd.Parameters.AddWithValue("$op", log.Op);
+        cmd.Parameters.AddWithValue("$result", (object?)log.Result ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ok", log.Ok ? 1 : 0);
+        cmd.Parameters.AddWithValue("$error", (object?)log.Error ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<CalcHistoryItem>> GetHistoryAsync(int take)
+    {
+        var items = new List<CalcHistoryItem>(take);
+
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, created_utc, n1, n2, op, result, ok, error
+            FROM operations
+            ORDER BY id DESC
+            LIMIT $take;
+            """;
+        cmd.Parameters.AddWithValue("$take", take);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            long id = reader.GetInt64(0);
+            string createdUtc = reader.GetString(1);
+            double n1 = reader.GetDouble(2);
+            double n2 = reader.GetDouble(3);
+            string op = reader.GetString(4);
+            double? result = reader.IsDBNull(5) ? null : reader.GetDouble(5);
+            bool ok = reader.GetInt64(6) == 1;
+            string? error = reader.IsDBNull(7) ? null : reader.GetString(7);
+
+            DateTime created = DateTime.TryParse(createdUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+                ? parsed
+                : DateTime.UtcNow;
+
+            items.Add(new CalcHistoryItem(id, created, n1, n2, op, result, ok, error));
+        }
+
+        return items;
+    }
+}
