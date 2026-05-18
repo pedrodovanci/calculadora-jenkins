@@ -21,7 +21,27 @@ if (args.Any(a => string.Equals(a, "--console", StringComparison.OrdinalIgnoreCa
     return;
 }
 
-await RunWebAsync(args);
+try
+{
+    await RunWebAsync(args);
+}
+catch (Exception ex)
+{
+    string message = $"Falha ao iniciar a Calculadora Web.{Environment.NewLine}{Environment.NewLine}{ex.GetType().Name}: {ex.Message}";
+    try
+    {
+        string logPath = StartupLog.Write(ex);
+        message += $"{Environment.NewLine}{Environment.NewLine}Log: {logPath}";
+    }
+    catch
+    {
+    }
+
+    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        MessageBox.Show("Calculadora", message);
+    else
+        Console.Error.WriteLine(message);
+}
 
 static void RunConsole()
 {
@@ -108,16 +128,8 @@ static async Task RunWebAsync(string[] args)
 
     var app = builder.Build();
 
-    var db = new CalcDb(GetDbPath());
+    var db = new CalcDb(GetDbPath(args));
     await db.InitAsync();
-
-    app.Lifetime.ApplicationStarted.Register(() =>
-    {
-        if (args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase)))
-            return;
-
-        TryOpenBrowser($"{baseUrl}/");
-    });
 
     app.MapGet("/", () =>
     {
@@ -162,7 +174,12 @@ static async Task RunWebAsync(string[] args)
         return Results.Json(new { ok = true, items });
     });
 
-    await app.RunAsync();
+    await app.StartAsync();
+
+    if (!args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase)))
+        TryOpenBrowser($"{baseUrl}/");
+
+    await app.WaitForShutdownAsync();
 }
 
 static int? ParsePortArg(string[] args)
@@ -214,15 +231,25 @@ static void TryOpenBrowser(string url)
 
     try
     {
-        Process.Start(new ProcessStartInfo("cmd", $"/c start {url}") { CreateNoWindow = true });
+        Process.Start(new ProcessStartInfo("cmd", $"/c start \"\" \"{url}\"") { CreateNoWindow = true });
     }
     catch
     {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            MessageBox.Show("Calculadora", $"Servidor iniciado em:{Environment.NewLine}{url}{Environment.NewLine}{Environment.NewLine}Não foi possível abrir o navegador automaticamente.");
     }
 }
 
-static string GetDbPath()
+static string GetDbPath(string[] args)
 {
+    string? fromArgs = ParseDbPathArg(args);
+    if (!string.IsNullOrWhiteSpace(fromArgs))
+    {
+        string full = Path.GetFullPath(fromArgs);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        return full;
+    }
+
     try
     {
         string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Calculadora");
@@ -235,6 +262,17 @@ static string GetDbPath()
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "calculadora.db");
     }
+}
+
+static string? ParseDbPathArg(string[] args)
+{
+    foreach (string a in args)
+    {
+        if (a.StartsWith("--db-path=", StringComparison.OrdinalIgnoreCase))
+            return a.Substring("--db-path=".Length).Trim('"');
+    }
+
+    return null;
 }
 
 static string? TryLoadHtml()
@@ -391,5 +429,38 @@ static class ConsoleHost
         if (GetConsoleWindow() != IntPtr.Zero)
             return;
         AllocConsole();
+    }
+}
+
+static class MessageBox
+{
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+
+    public static void Show(string title, string text)
+    {
+        MessageBoxW(IntPtr.Zero, text, title, 0);
+    }
+}
+
+static class StartupLog
+{
+    public static string Write(Exception ex)
+    {
+        string dir;
+        try
+        {
+            dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Calculadora", "logs");
+            Directory.CreateDirectory(dir);
+        }
+        catch
+        {
+            dir = Path.Combine(AppContext.BaseDirectory, "logs");
+            Directory.CreateDirectory(dir);
+        }
+
+        string file = Path.Combine(dir, $"startup-{DateTime.UtcNow:yyyyMMdd-HHmmss}.log");
+        File.WriteAllText(file, ex.ToString(), Encoding.UTF8);
+        return file;
     }
 }
